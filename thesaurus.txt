@@ -1,0 +1,7 @@
+thou, thee, ye => you
+thine, thy => your
+afore => before
+hath => has
+sibboleth => shibboleth
+spake => spoke
+goeth => goes

@@ -1,0 +1,155 @@
+#!/usr/bin/env nix-shell
+#!nix-shell -i python3 -p "python3.withPackages (ps: [ps.docopt])"
+
+"""Markov Text Generator.
+
+Usage:
+  markov [--stats] [-l <len>] [-n <n>] [-t <file>] [--] (<weight> <file>)...
+
+Options:
+  --stats   print statistics about the parsed corpora
+  -l <len>  length of string to generate [default: 350]
+  -n <n>    ngram length [default: 3]
+  -t <file> thesaurus file (lines in the format "alternate, alternate, ... => normal form")
+"""
+
+import random
+import string
+
+COLOURS = [
+    "\033[31m",  # red
+    "\033[32m",  # green
+    "\033[33m",  # yellow
+    "\033[34m",  # blue
+    "\033[35m",  # purple
+    "\033[36m",  # cyan
+]
+
+COLOUR_RESET = "\033[0m"
+STR_TABLE = str.maketrans(string.ascii_uppercase, string.ascii_lowercase, string.punctuation)
+
+
+def parse_thesaurus(source):
+    thesaurus = {}
+    for line in source.splitlines():
+        lhs, rhs = line.split("=>")
+        alts = [a.strip() for a in lhs.split(",")]
+        normal_form = rhs.strip()
+        for alt in alts:
+            thesaurus[alt] = normal_form
+    return thesaurus
+
+
+def tokenise(text):
+    return text.split()
+
+
+def train(tokens, data, corpus, n=3, weight=1, thesaurus={}):
+    ngram = tuple([None for _ in range(n)])
+    for token in tokens:
+        # store the original token for text generation
+        followers = data.setdefault(ngram, {})
+        followers.setdefault((token, corpus), 0)
+        followers[(token, corpus)] += weight
+
+        # but then use the normalised token in the ngram
+        ngram += (normalise(token, thesaurus),)
+        ngram = ngram[1:]
+
+
+def generate(data, length, n=3, thesaurus={}, switch_chance=2):
+    ngram = random.choice(list(data.keys()))
+    out = []
+    last_corpus = None
+    tokens_in_same_corpus = 0
+    for _ in range(length):
+        candidates = data[ngram]
+
+        # force choosing a token from a different corpus if we've picked too
+        # many from the same one in a row
+        if random.randrange(0, 100) <= switch_chance * tokens_in_same_corpus:
+            filtered_candidates = {
+                (token, corpus): weight
+                for (token, corpus), weight in data[ngram].items()
+                if corpus != last_corpus
+            }
+            if filtered_candidates:
+                candidates = filtered_candidates
+
+        token, corpus = choose_token(candidates)
+
+        # improve the "too many from the same one in a row" check by pretending
+        # this token came from the prior corpus, if it could have
+        if corpus != last_corpus and (token, last_corpus) in data[ngram]:
+            corpus = last_corpus
+
+        out.append((token, corpus))
+
+        # use the normalised token in the ngram
+        ngram += (normalise(token, thesaurus),)
+        ngram = ngram[1:]
+
+        if corpus == last_corpus:
+            tokens_in_same_corpus += 1
+        else:
+            last_corpus = corpus
+            tokens_in_same_corpus = 1
+
+    return out
+
+
+def normalise(token, thesaurus):
+    transformed = token.translate(STR_TABLE)
+    return thesaurus.get(transformed, transformed)
+
+
+def choose_token(freqdict):
+    items = freqdict.items()
+    return random.choices([k for k, _ in items], weights=[w for _, w in items])[0]
+
+
+if __name__ == "__main__":
+    import docopt
+    import pathlib
+    import itertools
+
+    args = docopt.docopt(__doc__)
+    output_len = int(args["-l"])
+    ngram_len = int(args["-n"])
+    thesaurus_file = args["-t"]
+    corpora = list(zip([int(w) for w in args["<weight>"]], args["<file>"]))
+
+    thesaurus = {}
+    if thesaurus_file is not None:
+        thesaurus = parse_thesaurus(pathlib.Path(thesaurus_file).read_text())
+
+    corpus_colour = {}
+    data = {}
+    all_tokens = set()
+    for colour, (cweight, cfile) in zip(itertools.cycle(COLOURS), corpora):
+        tokens = tokenise(pathlib.Path(cfile).read_text())
+        all_tokens |= set(tokens)
+        corpus_colour[cfile] = colour
+        train(tokens, data, cfile, n=ngram_len, weight=cweight, thesaurus=thesaurus)
+
+    if output_len > 0:
+        generated = [
+            f"{corpus_colour[corpus]}{token}{COLOUR_RESET}"
+            for (token, corpus) in generate(data, output_len, n=ngram_len, thesaurus=thesaurus)
+        ]
+        print(" ".join(generated))
+
+    if args["--stats"]:
+        print()
+
+        normalised_tokens = set(normalise(tok, thesaurus) for tok in all_tokens)
+        print(f"{len(all_tokens)} tokens: {len(normalised_tokens)} normalised")
+
+        ambiguous = 0
+        unambiguous = 0
+        for ngram, ngram_data in data.items():
+            if len(ngram_data) == 1:
+                unambiguous += 1
+            else:
+                ambiguous += 1
+        print(f"{len(data)} ngrams: {ambiguous} ambiguous, {unambiguous} unambiguous")
