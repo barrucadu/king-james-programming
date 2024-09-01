@@ -5,3 +5,4 @@ hath => has
 sibboleth => shibboleth
 spake => spoke
 goeth => goes
+/[1-9]\d*:[1-9]\d*/ => kjv_verse_start

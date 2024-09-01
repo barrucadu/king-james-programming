@@ -14,6 +14,7 @@ Options:
 """
 
 import random
+import re
 import string
 
 COLOURS = [
@@ -30,14 +31,19 @@ STR_TABLE = str.maketrans(string.ascii_uppercase, string.ascii_lowercase, string
 
 
 def parse_thesaurus(source):
-    thesaurus = {}
+    substitutions = {}
+    regexen = []
     for line in source.splitlines():
         lhs, rhs = line.split("=>")
         alts = [a.strip() for a in lhs.split(",")]
         normal_form = rhs.strip()
         for alt in alts:
-            thesaurus[alt] = normal_form
-    return thesaurus
+            if alt[0] == "/" and alt[-1] == "/":
+                pattern = re.compile(alt[1:-1])
+                regexen.append((pattern, normal_form))
+            else:
+                substitutions[alt] = normal_form
+    return (substitutions, regexen)
 
 
 def tokenise(text):
@@ -99,8 +105,13 @@ def generate(data, length, n=3, thesaurus={}, switch_chance=2):
 
 
 def normalise(token, thesaurus):
+    substitutions, regexen = thesaurus
+    for pattern, normal_form in regexen:
+        if re.fullmatch(pattern, token):
+            return normal_form
+
     transformed = token.translate(STR_TABLE)
-    return thesaurus.get(transformed, transformed)
+    return substitutions.get(transformed, transformed)
 
 
 def choose_token(freqdict):
