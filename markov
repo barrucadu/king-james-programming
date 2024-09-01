@@ -71,58 +71,67 @@ def tokenise(text):
     return text.split()
 
 
-def train(tokens, data, corpus, *, n=3, weight=1, thesaurus):
-    ngram = tuple([None for _ in range(n)])
-    for token in tokens:
-        # store the original token for text generation
-        followers = data.setdefault(ngram, {})
-        followers.setdefault((token, corpus), 0)
-        followers[(token, corpus)] += weight
+@dataclasses.dataclass
+class Markov:
+    # TODO: would be nice to show that the tuple types in `data`, `train`, and
+    # `generate` are all the same type
+    ngram_len: int = 3
+    data: dict[tuple[str | None, ...], dict[tuple[str, str], int]] = dataclasses.field(
+        default_factory=dict
+    )
+    thesaurus: Thesaurus = dataclasses.field(default_factory=Thesaurus)
 
-        # but then use the normalised token in the ngram
-        ngram += (thesaurus.normalise(token),)
-        ngram = ngram[1:]
+    def train(self, tokens: list[str], corpus: str, weight: int = 1):
+        ngram = tuple([None for _ in range(self.ngram_len)])
+        for token in tokens:
+            # store the original token for text generation
+            followers = self.data.setdefault(ngram, {})
+            followers.setdefault((token, corpus), 0)
+            followers[(token, corpus)] += weight
 
+            # but then use the normalised token in the ngram
+            ngram += (self.thesaurus.normalise(token),)
+            ngram = ngram[1:]
 
-def generate(data, length, *, n=3, thesaurus, switch_chance=2):
-    ngram = random.choice(list(data.keys()))
-    out = []
-    last_corpus = None
-    tokens_in_same_corpus = 0
-    for _ in range(length):
-        candidates = data[ngram]
+    def generate(self, length: int, switch_chance: int = 2) -> list[str]:
+        ngram = random.choice(list(self.data.keys()))
+        out = []
+        last_corpus = None
+        tokens_in_same_corpus = 0
+        for _ in range(length):
+            candidates = self.data[ngram]
 
-        # force choosing a token from a different corpus if we've picked too
-        # many from the same one in a row
-        if random.randrange(0, 100) <= switch_chance * tokens_in_same_corpus:
-            filtered_candidates = {
-                (token, corpus): weight
-                for (token, corpus), weight in data[ngram].items()
-                if corpus != last_corpus
-            }
-            if filtered_candidates:
-                candidates = filtered_candidates
+            # force choosing a token from a different corpus if we've picked too
+            # many from the same one in a row
+            if random.randrange(0, 100) <= switch_chance * tokens_in_same_corpus:
+                filtered_candidates = {
+                    (token, corpus): weight
+                    for (token, corpus), weight in candidates.items()
+                    if corpus != last_corpus
+                }
+                if filtered_candidates:
+                    candidates = filtered_candidates
 
-        token, corpus = choose_token(candidates)
+            token, corpus = choose_token(candidates)
 
-        # improve the "too many from the same one in a row" check by pretending
-        # this token came from the prior corpus, if it could have
-        if corpus != last_corpus and (token, last_corpus) in data[ngram]:
-            corpus = last_corpus
+            # improve the "too many from the same one in a row" check by pretending
+            # this token came from the prior corpus, if it could have
+            if corpus != last_corpus and (token, last_corpus) in self.data[ngram]:
+                corpus = last_corpus
 
-        out.append((token, corpus))
+            out.append((token, corpus))
 
-        # use the normalised token in the ngram
-        ngram += (thesaurus.normalise(token),)
-        ngram = ngram[1:]
+            # use the normalised token in the ngram
+            ngram += (thesaurus.normalise(token),)
+            ngram = ngram[1:]
 
-        if corpus == last_corpus:
-            tokens_in_same_corpus += 1
-        else:
-            last_corpus = corpus
-            tokens_in_same_corpus = 1
+            if corpus == last_corpus:
+                tokens_in_same_corpus += 1
+            else:
+                last_corpus = corpus
+                tokens_in_same_corpus = 1
 
-    return out
+        return out
 
 
 def choose_token(freqdict):
@@ -145,18 +154,18 @@ if __name__ == "__main__":
     )
 
     corpus_colour = {}
-    data = {}
+    markov = Markov(ngram_len=ngram_len, thesaurus=thesaurus)
     all_tokens = set()
     for colour, (cweight, cfile) in zip(itertools.cycle(COLOURS), corpora):
         tokens = tokenise(pathlib.Path(cfile).read_text())
         all_tokens |= set(tokens)
         corpus_colour[cfile] = colour
-        train(tokens, data, cfile, n=ngram_len, weight=cweight, thesaurus=thesaurus)
+        markov.train(tokens, cfile, weight=cweight)
 
     if output_len > 0:
         generated = [
             f"{corpus_colour[corpus]}{token}{COLOUR_RESET}"
-            for (token, corpus) in generate(data, output_len, n=ngram_len, thesaurus=thesaurus)
+            for (token, corpus) in markov.generate(output_len)
         ]
         print(" ".join(generated))
 
@@ -168,9 +177,10 @@ if __name__ == "__main__":
 
         ambiguous = 0
         unambiguous = 0
-        for ngram, ngram_data in data.items():
+        ngrams = markov.data
+        for ngram, ngram_data in ngrams.items():
             if len(ngram_data) == 1:
                 unambiguous += 1
             else:
                 ambiguous += 1
-        print(f"{len(data)} ngrams: {ambiguous} ambiguous, {unambiguous} unambiguous")
+        print(f"{len(ngrams)} ngrams: {ambiguous} ambiguous, {unambiguous} unambiguous")
