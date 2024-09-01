@@ -13,9 +13,12 @@ Options:
   -t <file> thesaurus file (lines in the format "alternate, alternate, ... => normal form")
 """
 
+import dataclasses
+import pathlib
 import random
 import re
 import string
+import typing
 
 COLOURS = [
     "\033[31m",  # red
@@ -30,27 +33,45 @@ COLOUR_RESET = "\033[0m"
 STR_TABLE = str.maketrans(string.ascii_uppercase, string.ascii_lowercase, string.punctuation)
 
 
-def parse_thesaurus(source):
-    substitutions = {}
-    regexen = []
-    for line in source.splitlines():
-        lhs, rhs = line.split("=>")
-        alts = [a.strip() for a in lhs.split(",")]
-        normal_form = rhs.strip()
-        for alt in alts:
-            if alt[0] == "/" and alt[-1] == "/":
-                pattern = re.compile(alt[1:-1])
-                regexen.append((pattern, normal_form))
-            else:
-                substitutions[alt] = normal_form
-    return (substitutions, regexen)
+@dataclasses.dataclass
+class Thesaurus:
+    substitutions: dict[str, str] = dataclasses.field(default_factory=dict)
+    regexen: list[tuple[re.Pattern[str], str]] = dataclasses.field(default_factory=list)
+
+    @classmethod
+    def from_str(cls, source: str) -> typing.Self:
+        substitutions = {}
+        regexen = []
+        for line in source.splitlines():
+            lhs, rhs = line.split("=>")
+            alts = [a.strip() for a in lhs.split(",")]
+            normal_form = rhs.strip()
+            for alt in alts:
+                if alt[0] == "/" and alt[-1] == "/":
+                    pattern = re.compile(alt[1:-1])
+                    regexen.append((pattern, normal_form))
+                else:
+                    substitutions[alt] = normal_form
+        return cls(substitutions=substitutions, regexen=regexen)
+
+    @classmethod
+    def from_file(cls, path: pathlib.Path) -> typing.Self:
+        return cls.from_str(path.read_text())
+
+    def normalise(self, token: str) -> str:
+        for pattern, normal_form in self.regexen:
+            if re.fullmatch(pattern, token):
+                return normal_form
+
+        transformed = token.translate(STR_TABLE)
+        return self.substitutions.get(transformed, transformed)
 
 
 def tokenise(text):
     return text.split()
 
 
-def train(tokens, data, corpus, n=3, weight=1, thesaurus={}):
+def train(tokens, data, corpus, *, n=3, weight=1, thesaurus):
     ngram = tuple([None for _ in range(n)])
     for token in tokens:
         # store the original token for text generation
@@ -59,11 +80,11 @@ def train(tokens, data, corpus, n=3, weight=1, thesaurus={}):
         followers[(token, corpus)] += weight
 
         # but then use the normalised token in the ngram
-        ngram += (normalise(token, thesaurus),)
+        ngram += (thesaurus.normalise(token),)
         ngram = ngram[1:]
 
 
-def generate(data, length, n=3, thesaurus={}, switch_chance=2):
+def generate(data, length, *, n=3, thesaurus, switch_chance=2):
     ngram = random.choice(list(data.keys()))
     out = []
     last_corpus = None
@@ -92,7 +113,7 @@ def generate(data, length, n=3, thesaurus={}, switch_chance=2):
         out.append((token, corpus))
 
         # use the normalised token in the ngram
-        ngram += (normalise(token, thesaurus),)
+        ngram += (thesaurus.normalise(token),)
         ngram = ngram[1:]
 
         if corpus == last_corpus:
@@ -104,16 +125,6 @@ def generate(data, length, n=3, thesaurus={}, switch_chance=2):
     return out
 
 
-def normalise(token, thesaurus):
-    substitutions, regexen = thesaurus
-    for pattern, normal_form in regexen:
-        if re.fullmatch(pattern, token):
-            return normal_form
-
-    transformed = token.translate(STR_TABLE)
-    return substitutions.get(transformed, transformed)
-
-
 def choose_token(freqdict):
     items = freqdict.items()
     return random.choices([k for k, _ in items], weights=[w for _, w in items])[0]
@@ -121,7 +132,6 @@ def choose_token(freqdict):
 
 if __name__ == "__main__":
     import docopt
-    import pathlib
     import itertools
 
     args = docopt.docopt(__doc__)
@@ -130,9 +140,9 @@ if __name__ == "__main__":
     thesaurus_file = args["-t"]
     corpora = list(zip([int(w) for w in args["<weight>"]], args["<file>"]))
 
-    thesaurus = {}
-    if thesaurus_file is not None:
-        thesaurus = parse_thesaurus(pathlib.Path(thesaurus_file).read_text())
+    thesaurus = (
+        Thesaurus() if thesaurus_file is None else Thesaurus.from_file(pathlib.Path(thesaurus_file))
+    )
 
     corpus_colour = {}
     data = {}
@@ -153,7 +163,7 @@ if __name__ == "__main__":
     if args["--stats"]:
         print()
 
-        normalised_tokens = set(normalise(tok, thesaurus) for tok in all_tokens)
+        normalised_tokens = set(thesaurus.normalise(tok) for tok in all_tokens)
         print(f"{len(all_tokens)} tokens: {len(normalised_tokens)} normalised")
 
         ambiguous = 0
