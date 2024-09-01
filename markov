@@ -92,13 +92,16 @@ class Markov:
             ngram += (self.thesaurus.normalise(token),)
             ngram = ngram[1:]
 
-    def generate(self, length: int, switch_chance: int = 2) -> list[str]:
+    def generate(self, switch_chance: int = 2) -> typing.Iterator[tuple[str, str]]:
         ngram = random.choice(list(self.data.keys()))
-        out = []
         last_corpus = None
         tokens_in_same_corpus = 0
-        for _ in range(length):
+        while True:
             candidates = self.data[ngram]
+
+            # abort if there's nowhere to go
+            if not candidates:
+                return
 
             # force choosing a token from a different corpus if we've picked too
             # many from the same one in a row
@@ -115,10 +118,10 @@ class Markov:
 
             # improve the "too many from the same one in a row" check by pretending
             # this token came from the prior corpus, if it could have
-            if corpus != last_corpus and (token, last_corpus) in self.data[ngram]:
+            if last_corpus is not None and (token, last_corpus) in self.data[ngram]:
                 corpus = last_corpus
 
-            out.append((token, corpus))
+            yield (token, corpus)
 
             # use the normalised token in the ngram
             ngram += (thesaurus.normalise(token),)
@@ -129,8 +132,6 @@ class Markov:
             else:
                 last_corpus = corpus
                 tokens_in_same_corpus = 1
-
-        return out
 
 
 def tokenise(text: str) -> list[str]:
@@ -172,11 +173,12 @@ if __name__ == "__main__":
         markov.train(tokens, cfile, weight=cweight)
 
     if output_len > 0:
-        generated = [
-            f"{corpus_colour[corpus]}{token}{COLOUR_RESET}"
-            for (token, corpus) in markov.generate(output_len)
-        ]
-        print(" ".join(generated))
+        generator = markov.generate()
+        token, corpus = next(generator)
+        print(f"{corpus_colour[corpus]}{token}{COLOUR_RESET}", end="")
+        for _, (token, corpus) in zip(range(output_len - 1), generator):
+            print(f" {corpus_colour[corpus]}{token}{COLOUR_RESET}", end="")
+        print()
 
     if args["--stats"]:
         print()
