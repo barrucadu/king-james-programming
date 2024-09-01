@@ -20,7 +20,7 @@ import re
 import string
 import typing
 
-COLOURS = [
+COLOURS: list[str] = [
     "\033[31m",  # red
     "\033[32m",  # green
     "\033[33m",  # yellow
@@ -29,8 +29,11 @@ COLOURS = [
     "\033[36m",  # cyan
 ]
 
-COLOUR_RESET = "\033[0m"
-STR_TABLE = str.maketrans(string.ascii_uppercase, string.ascii_lowercase, string.punctuation)
+COLOUR_RESET: str = "\033[0m"
+
+STR_TABLE: dict[int, int | None] = str.maketrans(
+    string.ascii_uppercase, string.ascii_lowercase, string.punctuation
+)
 
 
 @dataclasses.dataclass
@@ -65,10 +68,6 @@ class Thesaurus:
 
         transformed = token.translate(STR_TABLE)
         return self.substitutions.get(transformed, transformed)
-
-
-def tokenise(text):
-    return text.split()
 
 
 @dataclasses.dataclass
@@ -112,7 +111,7 @@ class Markov:
                 if filtered_candidates:
                     candidates = filtered_candidates
 
-            token, corpus = choose_token(candidates)
+            token, corpus = weighted_choice(candidates)
 
             # improve the "too many from the same one in a row" check by pretending
             # this token came from the prior corpus, if it could have
@@ -134,7 +133,17 @@ class Markov:
         return out
 
 
-def choose_token(freqdict):
+def tokenise(text: str) -> list[str]:
+    return text.split()
+
+
+# black doesn't support the newer syntax:
+#
+#     def weighted_choice[T](freqdict: dict[T, int]) -> T:
+T = typing.TypeVar("T")
+
+
+def weighted_choice(freqdict: dict[T, int]) -> T:
     items = freqdict.items()
     return random.choices([k for k, _ in items], weights=[w for _, w in items])[0]
 
