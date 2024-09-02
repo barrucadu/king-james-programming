@@ -1,6 +1,8 @@
 #!/usr/bin/env nix-shell
 #!nix-shell -i python3 -p "python3.withPackages (ps: [ps.docopt])"
 
+# pyright: strict
+
 """Markov Text Generator.
 
 Usage:
@@ -43,8 +45,8 @@ class Thesaurus:
 
     @classmethod
     def from_str(cls, source: str) -> typing.Self:
-        substitutions = {}
-        regexen = []
+        substitutions: dict[str, str] = {}
+        regexen: list[tuple[re.Pattern[str], str]] = []
         for line in source.splitlines():
             lhs, rhs = line.split("=>")
             alts = [a.strip() for a in lhs.split(",")]
@@ -165,7 +167,7 @@ if __name__ == "__main__":
 
     corpus_colour = {}
     markov = Markov(ngram_len=ngram_len, thesaurus=thesaurus)
-    all_tokens = set()
+    all_tokens: set[str] = set()
     for colour, (cweight, cfile) in zip(itertools.cycle(COLOURS), corpora):
         tokens = tokenise(pathlib.Path(cfile).read_text())
         all_tokens |= set(tokens)
