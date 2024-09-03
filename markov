@@ -95,7 +95,7 @@ class Markov:
             self.normalised_tokens[token] = normalised
         return normalised
 
-    def train(self, tokens: list[str], corpus: str, weight: int = 1):
+    def train(self, tokens: typing.Iterator[str], corpus: str, weight: int = 1):
         ngram = tuple([None for _ in range(self.ngram_len)])
         for token in tokens:
             # store the original token for text generation
@@ -149,8 +149,16 @@ class Markov:
                 tokens_in_same_corpus = 1
 
 
-def tokenise(text: str) -> list[str]:
-    return text.split()
+def tokenise(text: str) -> typing.Iterator[str]:
+    skipping = False
+    for tok in text.split():
+        if skipping and tok == "[/markov-skip]":
+            skipping = False
+        elif not skipping:
+            if tok == "[markov-skip]":
+                skipping = True
+            else:
+                yield tok
 
 
 # black doesn't support the newer syntax:
