@@ -74,13 +74,26 @@ class Thesaurus:
 
 @dataclasses.dataclass
 class Markov:
+    ngram_len: int = 3
+    thesaurus: Thesaurus = dataclasses.field(default_factory=Thesaurus)
+
     # TODO: would be nice to show that the tuple types in `data`, `train`, and
     # `generate` are all the same type
-    ngram_len: int = 3
     data: dict[tuple[str | None, ...], dict[tuple[str, str], int]] = dataclasses.field(
-        default_factory=dict
+        default_factory=dict,
+        init=False,
     )
-    thesaurus: Thesaurus = dataclasses.field(default_factory=Thesaurus)
+    normalised_tokens: dict[str, str] = dataclasses.field(
+        default_factory=dict,
+        init=False,
+    )
+
+    def __normalise(self, token: str) -> str:
+        normalised = self.normalised_tokens.get(token)
+        if normalised is None:
+            normalised = self.thesaurus.normalise(token)
+            self.normalised_tokens[token] = normalised
+        return normalised
 
     def train(self, tokens: list[str], corpus: str, weight: int = 1):
         ngram = tuple([None for _ in range(self.ngram_len)])
@@ -91,7 +104,7 @@ class Markov:
             followers[(token, corpus)] += weight
 
             # but then use the normalised token in the ngram
-            ngram += (self.thesaurus.normalise(token),)
+            ngram += (self.__normalise(token),)
             ngram = ngram[1:]
 
     def generate(self, switch_chance: int = 2) -> typing.Iterator[tuple[str, str]]:
@@ -126,7 +139,7 @@ class Markov:
             yield (token, corpus)
 
             # use the normalised token in the ngram
-            ngram += (thesaurus.normalise(token),)
+            ngram += (self.__normalise(token),)
             ngram = ngram[1:]
 
             if corpus == last_corpus:
@@ -167,10 +180,8 @@ if __name__ == "__main__":
 
     corpus_colour = {}
     markov = Markov(ngram_len=ngram_len, thesaurus=thesaurus)
-    all_tokens: set[str] = set()
     for colour, (cweight, cfile) in zip(itertools.cycle(COLOURS), corpora):
         tokens = tokenise(pathlib.Path(cfile).read_text())
-        all_tokens |= set(tokens)
         corpus_colour[cfile] = colour
         markov.train(tokens, cfile, weight=cweight)
 
@@ -185,7 +196,8 @@ if __name__ == "__main__":
     if args["--stats"]:
         print()
 
-        normalised_tokens = set(thesaurus.normalise(tok) for tok in all_tokens)
+        all_tokens = markov.normalised_tokens.keys()
+        normalised_tokens = set(markov.normalised_tokens.values())
         print(f"{len(all_tokens)} tokens: {len(normalised_tokens)} normalised")
 
         ambiguous = 0
