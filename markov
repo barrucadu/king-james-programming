@@ -86,29 +86,29 @@ class Markov:
     ngram_len: int = 3
     thesaurus: Thesaurus = dataclasses.field(default_factory=Thesaurus)
 
-    # TODO: would be nice to show that the tuple types in `data`, `train`, and
-    # `generate` are all the same type
-    data: dict[tuple[str | None, ...], dict[tuple[str, str], int]] = dataclasses.field(
+    # TODO: would be nice to show that the tuple types in `__ngrams`, `train`,
+    # and `generate` are all the same type
+    __ngrams: dict[tuple[str | None, ...], dict[tuple[str, str], int]] = dataclasses.field(
         default_factory=dict,
         init=False,
     )
-    normalised_tokens: dict[str, str] = dataclasses.field(
+    __normalised_tokens: dict[str, str] = dataclasses.field(
         default_factory=dict,
         init=False,
     )
 
     def __normalise(self, token: str) -> str:
-        normalised = self.normalised_tokens.get(token)
+        normalised = self.__normalised_tokens.get(token)
         if normalised is None:
             normalised = self.thesaurus.normalise(token)
-            self.normalised_tokens[token] = normalised
+            self.__normalised_tokens[token] = normalised
         return normalised
 
     def train(self, tokens: typing.Iterator[str], corpus: str, weight: int = 1):
         ngram = tuple([None for _ in range(self.ngram_len)])
         for token in tokens:
             # store the original token for text generation
-            followers = self.data.setdefault(ngram, {})
+            followers = self.__ngrams.setdefault(ngram, {})
             followers.setdefault((token, corpus), 0)
             followers[(token, corpus)] += weight
 
@@ -117,11 +117,11 @@ class Markov:
             ngram = ngram[1:]
 
     def generate(self, switch_chance: int = 2) -> typing.Iterator[tuple[str, str]]:
-        ngram = random.choice(list(self.data.keys()))
+        ngram = random.choice(list(self.__ngrams.keys()))
         last_corpus = None
         tokens_in_same_corpus = 0
         while True:
-            candidates = self.data[ngram]
+            candidates = self.__ngrams[ngram]
 
             # abort if there's nowhere to go
             if not candidates:
@@ -142,7 +142,7 @@ class Markov:
 
             # improve the "too many from the same one in a row" check by pretending
             # this token came from the prior corpus, if it could have
-            if last_corpus is not None and (token, last_corpus) in self.data[ngram]:
+            if last_corpus is not None and (token, last_corpus) in self.__ngrams[ngram]:
                 corpus = last_corpus
 
             yield (token, corpus)
@@ -160,16 +160,16 @@ class Markov:
     def stats(self) -> Stats:
         ambiguous_ngrams = 0
         unambiguous_ngrams = 0
-        for ngram_data in self.data.values():
+        for ngram_data in self.__ngrams.values():
             if len(ngram_data) == 1:
                 unambiguous_ngrams += 1
             else:
                 ambiguous_ngrams += 1
 
         return Stats(
-            tokens=len(self.normalised_tokens),
-            normalised_tokens=len(set(self.normalised_tokens.values())),
-            ngrams=len(self.data),
+            tokens=len(self.__normalised_tokens),
+            normalised_tokens=len(set(self.__normalised_tokens.values())),
+            ngrams=len(self.__ngrams),
             ambiguous_ngrams=ambiguous_ngrams,
             unambiguous_ngrams=unambiguous_ngrams,
         )
