@@ -73,6 +73,15 @@ class Thesaurus:
 
 
 @dataclasses.dataclass
+class Stats:
+    tokens: int
+    normalised_tokens: int
+    ngrams: int
+    ambiguous_ngrams: int
+    unambiguous_ngrams: int
+
+
+@dataclasses.dataclass
 class Markov:
     ngram_len: int = 3
     thesaurus: Thesaurus = dataclasses.field(default_factory=Thesaurus)
@@ -148,6 +157,23 @@ class Markov:
                 last_corpus = corpus
                 tokens_in_same_corpus = 1
 
+    def stats(self) -> Stats:
+        ambiguous_ngrams = 0
+        unambiguous_ngrams = 0
+        for ngram_data in self.data.values():
+            if len(ngram_data) == 1:
+                unambiguous_ngrams += 1
+            else:
+                ambiguous_ngrams += 1
+
+        return Stats(
+            tokens=len(self.normalised_tokens),
+            normalised_tokens=len(set(self.normalised_tokens.values())),
+            ngrams=len(self.data),
+            ambiguous_ngrams=ambiguous_ngrams,
+            unambiguous_ngrams=unambiguous_ngrams,
+        )
+
 
 def tokenise(text: str) -> typing.Iterator[str]:
     skipping = False
@@ -202,18 +228,11 @@ if __name__ == "__main__":
         print()
 
     if args["--stats"]:
+        stats = markov.stats()
         print()
-
-        all_tokens = markov.normalised_tokens.keys()
-        normalised_tokens = set(markov.normalised_tokens.values())
-        print(f"{len(all_tokens)} tokens: {len(normalised_tokens)} normalised")
-
-        ambiguous = 0
-        unambiguous = 0
-        ngrams = markov.data
-        for ngram, ngram_data in ngrams.items():
-            if len(ngram_data) == 1:
-                unambiguous += 1
-            else:
-                ambiguous += 1
-        print(f"{len(ngrams)} ngrams: {ambiguous} ambiguous, {unambiguous} unambiguous")
+        print(f"{stats.tokens} tokens: {stats.normalised_tokens} normalised")
+        print(
+            f"{stats.ngrams} ngrams: "
+            f"{stats.ambiguous_ngrams} ambiguous, "
+            f"{stats.unambiguous_ngrams} unambiguous"
+        )
