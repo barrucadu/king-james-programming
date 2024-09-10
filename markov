@@ -6,11 +6,12 @@
 """Markov Text Generator.
 
 Usage:
-  markov [--stats] [-l <len>] [-n <n>] [-t <file>] [-s <seed>] [--] (<weight> <file>)...
+  markov [--stats] [-l <len>] [-L <n>] [-n <n>] [-t <file>] [-s <seed>] [--] (<weight> <file>)...
 
 Options:
   --stats    print statistics about the parsed corpora
   -l <len>   length of string to generate [default: 350]
+  -L <n>     generate this many distinct outputs [default: 1]
   -n <n>     ngram length [default: 3]
   -t <file>  thesaurus file (lines in the format "alternate, alternate, ... => normal form")
   -s <seed>  space-separated sequence of tokens to start the output with
@@ -232,6 +233,7 @@ if __name__ == "__main__":
 
     args = docopt.docopt(__doc__)
     output_len = int(args["-l"])
+    output_count = int(args["-L"])
     ngram_len = int(args["-n"])
     thesaurus_file = args["-t"]
     seed: list[str] = args["-s"].split() if args["-s"] else []
@@ -249,12 +251,16 @@ if __name__ == "__main__":
         markov.train(tokens, cfile, weight=cweight)
 
     if output_len > 0:
-        generator = markov.generate(seed=seed)
-        token, corpus = next(generator)
-        print(f"{corpus_colour[corpus]}{token}{COLOUR_RESET}", end="")
-        for _, (token, corpus) in zip(range(output_len - 1), generator):
-            print(f" {corpus_colour[corpus]}{token}{COLOUR_RESET}", end="")
-        print()
+        for oi in range(output_count):
+            if oi > 0:
+                print()
+
+            generator = markov.generate(seed=seed)
+            token, corpus = next(generator)
+            print(f"{corpus_colour[corpus]}{token}{COLOUR_RESET}", end="")
+            for _, (token, corpus) in zip(range(output_len - 1), generator):
+                print(f" {corpus_colour[corpus]}{token}{COLOUR_RESET}", end="")
+            print()
 
     if args["--stats"]:
         stats = markov.stats()
