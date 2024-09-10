@@ -6,13 +6,14 @@
 """Markov Text Generator.
 
 Usage:
-  markov [--stats] [-l <len>] [-n <n>] [-t <file>] [--] (<weight> <file>)...
+  markov [--stats] [-l <len>] [-n <n>] [-t <file>] [-s <seed>] [--] (<weight> <file>)...
 
 Options:
-  --stats   print statistics about the parsed corpora
-  -l <len>  length of string to generate [default: 350]
-  -n <n>    ngram length [default: 3]
-  -t <file> thesaurus file (lines in the format "alternate, alternate, ... => normal form")
+  --stats    print statistics about the parsed corpora
+  -l <len>   length of string to generate [default: 350]
+  -n <n>     ngram length [default: 3]
+  -t <file>  thesaurus file (lines in the format "alternate, alternate, ... => normal form")
+  -s <seed>  space-separated sequence of tokens to start the output with
 """
 
 import dataclasses
@@ -116,12 +117,24 @@ class Markov:
             ngram += (self.__normalise(token),)
             ngram = ngram[1:]
 
-    def generate(self, switch_chance: int = 2) -> typing.Iterator[tuple[str, str]]:
-        ngram = random.choice(list(self.__ngrams.keys()))
+    def generate(
+        self, seed: list[str] = [], switch_chance: int = 2
+    ) -> typing.Iterator[tuple[str, str]]:
+        ngram = self.initial_ngram(seed)
         last_corpus = None
         tokens_in_same_corpus = 0
         while True:
             candidates = self.__ngrams[ngram]
+
+            # restrict to tokens matching the seed
+            if seed:
+                stoken = self.__normalise(seed[0])
+                candidates = {
+                    (token, corpus): weight
+                    for (token, corpus), weight in candidates.items()
+                    if stoken == self.__normalise(token)
+                }
+                seed = seed[1:]
 
             # abort if there's nowhere to go
             if not candidates:
@@ -156,6 +169,21 @@ class Markov:
             else:
                 last_corpus = corpus
                 tokens_in_same_corpus = 1
+
+    def initial_ngram(self, seed: list[str] = []) -> tuple[str | None, ...]:
+        # if seeding, pick as the initial ngram one which can generate the first
+        # token
+        if seed:
+            stoken = self.__normalise(seed[0])
+            return random.choice(
+                [
+                    ngram
+                    for ngram, followers in self.__ngrams.items()
+                    if stoken in [self.__normalise(token) for (token, _) in followers.keys()]
+                ]
+            )
+        else:
+            return random.choice(list(self.__ngrams.keys()))
 
     def stats(self) -> Stats:
         ambiguous_ngrams = 0
@@ -206,6 +234,7 @@ if __name__ == "__main__":
     output_len = int(args["-l"])
     ngram_len = int(args["-n"])
     thesaurus_file = args["-t"]
+    seed: list[str] = args["-s"].split() if args["-s"] else []
     corpora = list(zip([int(w) for w in args["<weight>"]], args["<file>"]))
 
     thesaurus = (
@@ -220,7 +249,7 @@ if __name__ == "__main__":
         markov.train(tokens, cfile, weight=cweight)
 
     if output_len > 0:
-        generator = markov.generate()
+        generator = markov.generate(seed=seed)
         token, corpus = next(generator)
         print(f"{corpus_colour[corpus]}{token}{COLOUR_RESET}", end="")
         for _, (token, corpus) in zip(range(output_len - 1), generator):
